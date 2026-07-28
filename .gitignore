@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 venv/
 .ruff_cache/
+.claude/
 .pytest_cache/
 .mypy_cache/
 
