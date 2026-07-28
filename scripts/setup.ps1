@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     在 Windows 侧创建虚拟环境并安装 Reader 的依赖。
 
@@ -56,4 +56,4 @@ if ($Ai) {
 
 Write-Host ""
 Write-Host "完成。启动方式：" -ForegroundColor Green
-Write-Host "  $(Join-Path $PSScriptRoot 'run.ps1')"
+Write-Host "  双击 $(Join-Path $PSScriptRoot 'run.cmd')"

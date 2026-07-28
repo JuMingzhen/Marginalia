@@ -10,30 +10,29 @@
 
 ### 首次安装
 
-在 Windows PowerShell 里执行：
-
-```powershell
-\\wsl.localhost\Ubuntu\home\jmz\dev\Reader\scripts\setup.ps1
-```
+在资源管理器里打开 `\\wsl.localhost\Ubuntu\home\jmz\dev\Reader\scripts\`，**双击 `setup.cmd`**。
 
 会在 `%USERPROFILE%\.venvs\reader` 建一个虚拟环境并装好依赖。虚拟环境刻意不放在仓库里——
 仓库在 WSL 文件系统上，把 120MB 的 PySide6 装到 UNC 路径上又慢又容易出问题。
 
-要读扫描版（无文字层的 PDF）就加上 `-Ocr` 装本地 OCR：
+要读扫描版（无文字层的 PDF），在 PowerShell 里带 `-Ocr` 参数装本地 OCR：
 
 ```powershell
-\\wsl.localhost\Ubuntu\home\jmz\dev\Reader\scripts\setup.ps1 -Ocr
+& "\\wsl.localhost\Ubuntu\home\jmz\dev\Reader\scripts\setup.cmd" -Ocr
 ```
 
 没装也能用，只是框选出来的原文得自己录。
 
 ### 启动
 
-```powershell
-\\wsl.localhost\Ubuntu\home\jmz\dev\Reader\scripts\run.ps1
-```
+双击 `scripts\run.cmd`，或者把 PDF 拖到它上面直接打开那本书。
 
-带 `-Quiet` 用 `pythonw.exe` 启动（无控制台窗口）。
+> **为什么是 `.cmd` 而不是直接跑 `.ps1`**：仓库在 WSL 文件系统上，Windows 通过
+> `\\wsl.localhost\` 访问时算「远程」区域，默认的 RemoteSigned 执行策略会拒绝运行
+> 那里的未签名 PowerShell 脚本。`.cmd` 不受执行策略约束，由它转手调用即可。
+> 同理，两个 `.ps1` 存成带 BOM 的 UTF-8——PowerShell 5.1 否则会按 GBK 读，中文全是乱码。
+
+`run.cmd -Quiet` 用 `pythonw.exe` 启动，不带控制台窗口。
 
 ## 用法速记
 
