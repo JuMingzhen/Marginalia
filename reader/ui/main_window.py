@@ -6,7 +6,14 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, Qt, QTimer
-from PySide6.QtGui import QAction, QActionGroup, QDragEnterEvent, QDropEvent, QKeySequence
+from PySide6.QtGui import (
+    QAction,
+    QActionGroup,
+    QDragEnterEvent,
+    QDropEvent,
+    QImage,
+    QKeySequence,
+)
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
@@ -23,6 +30,8 @@ from reader.core import theme as theme_mod
 from reader.core.document import Document
 from reader.core.render import PageRenderer
 from reader.core.textmap import Selection
+from reader.services.ocr import OcrService
+from reader.store import clips as clip_store
 from reader.store import progress as progress_store
 from reader.store.library import Library
 from reader.store.notes import DEFAULT_COLOR, Anchor, Note, NoteStore
@@ -37,9 +46,13 @@ log = logging.getLogger(__name__)
 PROGRESS_SAVE_INTERVAL_MS = 5000
 RECENT_LIMIT = 12
 
+#: 区域截图的渲染精度。屏幕上那张图只有 ~100 DPI，拿去 OCR 识别率很差；
+#: 回到原始 PDF 按 300 DPI 重画那一小块，识别率是两个量级的差别。
+CLIP_DPI = 300
+
 
 class MainWindow(QMainWindow):
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, ocr: OcrService | None = None) -> None:
         super().__init__()
         self._config = config
         self._library = Library()
@@ -47,6 +60,14 @@ class MainWindow(QMainWindow):
         self._renderer: PageRenderer | None = None
         self._notes: NoteStore | None = None
         self._saved_position: tuple[int, float] | None = None
+
+        # 可注入，测试时换成不依赖模型的桩后端
+        self._ocr = ocr or OcrService(parent=self)
+        self._ocr.finished.connect(self._on_ocr_finished)
+        self._ocr.failed.connect(self._on_ocr_failed)
+        #: 在途的裁剪/识别请求 → 归属的笔记 id
+        self._pending_clips: dict[str, str] = {}
+        self._pending_ocr: dict[str, str] = {}
 
         self.setWindowTitle("Reader")
         self.setAcceptDrops(True)
@@ -66,6 +87,7 @@ class MainWindow(QMainWindow):
         self._page_view.selection_changed.connect(self._on_selection_changed)
         self._page_view.note_clicked.connect(self._on_note_clicked)
         self._page_view.view_shifted.connect(self._selection_toolbar.hide)
+        self._page_view.region_selected.connect(self._on_region_selected)
 
         self._restore_session()
 
@@ -223,6 +245,14 @@ class MainWindow(QMainWindow):
         notes_menu.addAction(annotate)
 
         notes_menu.addSeparator()
+
+        self._region_action = QAction("框选模式", self, checkable=True)
+        self._region_action.setShortcut(QKeySequence("Ctrl+R"))
+        self._region_action.setToolTip("在页面上拖出矩形来记笔记（也可以随时按住 Alt 拖）")
+        self._region_action.toggled.connect(self._page_view.set_region_mode)
+        notes_menu.addAction(self._region_action)
+
+        notes_menu.addSeparator()
         toggle_notes = self._notes_dock.toggleViewAction()
         toggle_notes.setText("显示笔记侧栏")
         toggle_notes.setShortcut(QKeySequence("Ctrl+Shift+B"))
@@ -298,12 +328,15 @@ class MainWindow(QMainWindow):
 
         self._doc = doc
         self._renderer = renderer
+        self._renderer.clip_ready.connect(self._on_clip_ready)
         self._notes = NoteStore(doc.doc_id)
         self._page_view.set_document(doc, renderer, self._notes)
         self._outline.set_outline(doc.outline())
         self._refresh_notes()
 
         has_text = doc.has_text_layer()
+        # 扫描版整本都划不出文字，默认开框选，省得每次按 Alt
+        self._region_action.setChecked(not has_text)
         self._library.record_open(
             doc_id=doc.doc_id,
             path=path,
@@ -317,7 +350,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{doc.title} — Reader")
         self._page_total.setText(f"/ {doc.page_count}")
         if not has_text:
-            self.statusBar().showMessage("这是扫描版（无文字层），划词功能需要先做 OCR", 8000)
+            self.statusBar().showMessage(
+                "扫描版（无文字层）：已开启框选模式，拖出矩形即可截图 + OCR 记笔记", 8000
+            )
         else:
             self.statusBar().clearMessage()
 
@@ -331,6 +366,8 @@ class MainWindow(QMainWindow):
         self._note_editor.set_note(None)
         self._notes_panel.set_notes([])
         self._selection_toolbar.hide()
+        self._pending_clips.clear()
+        self._pending_ocr.clear()
         self._notes = None
         self._page_view.set_document(None, None, None)
         if self._renderer is not None:
@@ -464,6 +501,79 @@ class MainWindow(QMainWindow):
         self._note_editor.set_note(note)
         self._note_editor.focus_body()
 
+    # ---- 框选 → 截图 → OCR ----
+
+    def _on_region_selected(self, page: int, rect: tuple[float, float, float, float]) -> None:
+        """框选完成。
+
+        顺序是刻意的：**先建笔记、先弹卡片**，截图和 OCR 都在后台跑。用户松开鼠标
+        的下一刻就能开始打字，不必盯着转圈等识别结果。晚一两秒回来的内容再填进去。
+        """
+        if self._notes is None or self._renderer is None:
+            return
+
+        note = self._notes.create(
+            anchor=Anchor(kind="region", page=page, rects=[rect]),
+            quote="",
+            quote_source="ocr",
+        )
+        self._refresh_notes(current_id=note.id)
+
+        self._notes_dock.show()
+        self._note_editor.set_note(note)
+        self._note_editor.focus_body()
+
+        request_id = self._renderer.request_clip(page, rect, dpi=CLIP_DPI)
+        self._pending_clips[request_id] = note.id
+
+        if self._ocr.available():
+            self._note_editor.set_quote_status("正在识别…")
+        else:
+            self._note_editor.set_quote_status(self._ocr.unavailable_reason())
+
+    def _on_clip_ready(self, request_id: str, image: QImage) -> None:
+        note_id = self._pending_clips.pop(request_id, None)
+        if note_id is None or self._notes is None:
+            return
+        note = self._notes.get(note_id)
+        if note is None:
+            return  # 截图还没回来用户就把笔记删了
+
+        relative = clip_store.save(self._notes.doc_id, note_id, image)
+        if relative:
+            self._notes.update(note_id, clip=relative)
+
+        if self._note_editor.note_id == note_id:
+            self._note_editor.set_clip(image)
+
+        if self._ocr.available() and not image.isNull():
+            self._pending_ocr[self._ocr.recognize_async(image)] = note_id
+
+    def _on_ocr_finished(self, request_id: str, text: str, confidence: float) -> None:
+        note_id = self._pending_ocr.pop(request_id, None)
+        if note_id is None or self._notes is None:
+            return
+        if self._notes.get(note_id) is None:
+            return
+
+        if self._note_editor.note_id == note_id:
+            self._note_editor.set_quote(text)
+            self._note_editor.set_quote_status("原文（OCR 结果可直接改）")
+        else:
+            # 用户已经翻到别处去了，直接落盘
+            existing = self._notes.get(note_id)
+            if existing is not None and not existing.quote.strip():
+                self._notes.update(note_id, quote=text)
+                self._refresh_notes()
+
+        self.statusBar().showMessage(f"OCR 完成（置信度 {confidence:.0%}）", 3000)
+
+    def _on_ocr_failed(self, request_id: str, message: str) -> None:
+        note_id = self._pending_ocr.pop(request_id, None)
+        if note_id is not None and self._note_editor.note_id == note_id:
+            self._note_editor.set_quote_status("识别失败，可以手动录入原文")
+        self.statusBar().showMessage(f"OCR 失败：{message}", 5000)
+
     def _on_note_clicked(self, note_id: str) -> None:
         """点中了页面上的高亮。"""
         note = self._notes.get(note_id) if self._notes else None
@@ -471,7 +581,7 @@ class MainWindow(QMainWindow):
             return
         self._notes_dock.show()
         self._notes_panel.select(note_id)
-        self._note_editor.set_note(note)
+        self._note_editor.set_note(note, self._clip_for(note))
         self._page_view.flash_note(note_id)
 
     def _on_note_activated(self, note_id: str) -> None:
@@ -479,8 +589,13 @@ class MainWindow(QMainWindow):
         note = self._notes.get(note_id) if self._notes else None
         if note is None:
             return
-        self._note_editor.set_note(note)
+        self._note_editor.set_note(note, self._clip_for(note))
         self._page_view.reveal_note(note)
+
+    def _clip_for(self, note: Note) -> QImage | None:
+        if self._notes is None or not note.clip:
+            return None
+        return clip_store.load(self._notes.doc_id, note.clip)
 
     def _on_note_save(self, note_id: str, patch: dict) -> None:
         if self._notes is None:
@@ -495,6 +610,9 @@ class MainWindow(QMainWindow):
     def _on_note_delete(self, note_id: str) -> None:
         if self._notes is None:
             return
+        note = self._notes.get(note_id)
+        if note is not None and note.clip:
+            clip_store.remove(self._notes.doc_id, note.clip)
         self._notes.delete(note_id)
         self._note_editor.set_note(None)
         self._refresh_notes()
@@ -532,4 +650,5 @@ class MainWindow(QMainWindow):
         self._save_progress()
         self._persist_session()
         self._release_document()
+        self._ocr.shutdown()
         super().closeEvent(event)

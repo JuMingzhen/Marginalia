@@ -32,6 +32,14 @@ _NIGHT_ALPHA = 64
 SELECTION_COLOR = QColor(64, 132, 232, 90)
 FLASH_COLOR = QColor(255, 160, 40)
 
+#: 框选时的橡皮筋
+REGION_STROKE = QColor(64, 132, 232)
+REGION_FILL = QColor(64, 132, 232, 38)
+
+#: 区域笔记画成描边框而不是色块——色块盖在扫描图上会把内容糊住
+REGION_NOTE_FILL_ALPHA = 34
+REGION_NOTE_STROKE_WIDTH = 2.0
+
 
 def _lighten(color: QColor, amount: float) -> QColor:
     return QColor(

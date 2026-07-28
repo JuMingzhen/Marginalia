@@ -116,6 +116,8 @@ class PageView(QAbstractScrollArea):
     note_clicked = Signal(str)
     #: 视口滚动或缩放了——浮动工具条该收起来
     view_shifted = Signal()
+    #: 框选完成：(页码, PDF 坐标矩形)
+    region_selected = Signal(int, object)
 
     GAP = 14  # 页间距（逻辑像素）
     MARGIN = 16  # 画布四周留白
@@ -148,6 +150,12 @@ class PageView(QAbstractScrollArea):
         self._drag_anchor: int | None = None
         self._drag_origin: QPointF | None = None
         self._drag_moved = False
+
+        # 框选（扫描版走这条路）
+        self._region_mode = False
+        self._region_page: int | None = None
+        self._region_start: QPointF | None = None
+        self._region_current: QPointF | None = None
 
         # 跳转到笔记后的闪烁提示
         self._flash_note_id: str | None = None
@@ -402,6 +410,9 @@ class PageView(QAbstractScrollArea):
         for page in range(last + 1, min(self._doc.page_count, last + 1 + PREFETCH_PAGES)):
             self._renderer.prefetch(page, render_scale, self._theme)
 
+        if self._region_page is not None:
+            self._paint_region_band(painter)
+
     def _paint_annotations(self, painter: QPainter, page: int, page_rect: QRectF) -> None:
         """在页面位图之上画高亮、闪烁提示和当前选区。"""
         painter.save()
@@ -409,6 +420,8 @@ class PageView(QAbstractScrollArea):
 
         if self._notes is not None:
             for note in self._notes.by_page(page):
+                if note.anchor.kind == "region":
+                    continue  # 区域笔记不用叠底，见下面单独处理
                 color = colors.setup_highlight_painter(painter, note.color, self._theme)
                 painter.setBrush(color)
                 for rect in note.anchor.rects:
@@ -416,12 +429,45 @@ class PageView(QAbstractScrollArea):
 
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
 
+        if self._notes is not None:
+            for note in self._notes.by_page(page):
+                if note.anchor.kind == "region":
+                    self._paint_region_note(painter, note, page_rect)
+
         if self._selection is not None and self._selection.page == page:
             painter.setBrush(colors.SELECTION_COLOR)
             for rect in self._selection.rects:
                 painter.drawRect(self._map_rect(page_rect, rect))
 
         self._paint_flash(painter, page, page_rect)
+        painter.restore()
+
+    def _paint_region_note(self, painter: QPainter, note: Note, page_rect: QRectF) -> None:
+        """区域笔记画成描边框加一层很淡的底。
+
+        不能像文字高亮那样铺色块——扫描页本身就是图，盖一层色会把内容糊掉，
+        而框选想标住的往往正是图表或公式。
+        """
+        stroke = colors.base_color(note.color)
+        fill = colors.base_color(note.color)
+        fill.setAlpha(colors.REGION_NOTE_FILL_ALPHA)
+
+        painter.setBrush(fill)
+        painter.setPen(QPen(stroke, colors.REGION_NOTE_STROKE_WIDTH))
+        for rect in note.anchor.rects:
+            painter.drawRect(self._map_rect(page_rect, rect))
+        painter.setPen(Qt.PenStyle.NoPen)
+
+    def _paint_region_band(self, painter: QPainter) -> None:
+        """正在拖的框选橡皮筋。"""
+        if self._region_start is None or self._region_current is None:
+            return
+        rect = QRectF(self._region_start, self._region_current).normalized()
+        painter.save()
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+        painter.setBrush(colors.REGION_FILL)
+        painter.setPen(QPen(colors.REGION_STROKE, 1.5, Qt.PenStyle.DashLine))
+        painter.drawRect(rect)
         painter.restore()
 
     def _paint_flash(self, painter: QPainter, page: int, page_rect: QRectF) -> None:
@@ -563,6 +609,54 @@ class PageView(QAbstractScrollArea):
     # 事件
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # 框选
+    # ------------------------------------------------------------------
+
+    @property
+    def region_mode(self) -> bool:
+        return self._region_mode
+
+    def set_region_mode(self, enabled: bool) -> None:
+        """常开框选。扫描版整本都没有文字层，每次按 Alt 太累。"""
+        self._region_mode = enabled
+        self.viewport().setCursor(
+            Qt.CursorShape.CrossCursor if enabled else Qt.CursorShape.ArrowCursor
+        )
+        if not enabled:
+            self._cancel_region()
+
+    def _wants_region(self, event: QMouseEvent) -> bool:
+        return self._region_mode or bool(event.modifiers() & Qt.KeyboardModifier.AltModifier)
+
+    def _cancel_region(self) -> None:
+        self._region_page = None
+        self._region_start = None
+        self._region_current = None
+        self.viewport().update()
+
+    def _region_rect_pt(self) -> tuple[float, float, float, float] | None:
+        """当前框选区域，换算成 PDF 坐标并钳进页面范围内。"""
+        if self._region_page is None or self._region_start is None or self._region_current is None:
+            return None
+        x0, y0 = self._to_pdf(self._region_page, self._region_start)
+        x1, y1 = self._to_pdf(self._region_page, self._region_current)
+        left, right = sorted((x0, x1))
+        top, bottom = sorted((y0, y1))
+
+        page_w, page_h = self._doc.page_size(self._region_page)
+        left = max(0.0, min(page_w, left))
+        right = max(0.0, min(page_w, right))
+        top = max(0.0, min(page_h, top))
+        bottom = max(0.0, min(page_h, bottom))
+        if right - left < 2 or bottom - top < 2:
+            return None
+        return (left, top, right, bottom)
+
+    # ------------------------------------------------------------------
+    # 鼠标
+    # ------------------------------------------------------------------
+
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if event.button() != Qt.MouseButton.LeftButton or self._doc is None:
             super().mousePressEvent(event)
@@ -572,6 +666,15 @@ class PageView(QAbstractScrollArea):
         page = self._page_at(pos)
         if page is None:
             return
+
+        if self._wants_region(event):
+            self.clear_selection()
+            self._region_page = page
+            self._region_start = pos
+            self._region_current = pos
+            self.viewport().update()
+            return
+
         x, y = self._to_pdf(page, pos)
 
         # 点在已有高亮上：打开那条笔记，而不是开始新的选择
@@ -598,6 +701,11 @@ class PageView(QAbstractScrollArea):
         self.viewport().update()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if self._region_page is not None:
+            self._region_current = event.position()
+            self.viewport().update()
+            return
+
         if self._drag_page is None or self._doc is None:
             super().mouseMoveEvent(event)
             return
@@ -617,6 +725,14 @@ class PageView(QAbstractScrollArea):
             self.viewport().update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if self._region_page is not None:
+            page = self._region_page
+            rect = self._region_rect_pt()
+            self._cancel_region()
+            if rect is not None:
+                self.region_selected.emit(page, rect)
+            return
+
         if self._drag_page is None:
             super().mouseReleaseEvent(event)
             return
