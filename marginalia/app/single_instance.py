@@ -52,18 +52,30 @@ class SingleInstance(QObject):
         return True
 
     def _send(self, payload: str) -> bool:
-        """试着把 payload 交给已在运行的实例。成功返回 True。"""
-        socket = QLocalSocket()
-        socket.connectToServer(self._key)
-        if not socket.waitForConnected(TIMEOUT_MS):
-            return False
+        """试着把 payload 交给已在运行的实例。成功返回 True。
 
-        socket.write(payload.encode("utf-8"))
-        socket.flush()
-        socket.waitForBytesWritten(TIMEOUT_MS)
-        socket.disconnectFromServer()
-        log.info("已有实例在运行，请求转发完毕")
-        return True
+        socket 必须挂在 self 底下：无父对象的 QObject 由 Python 的 GC 决定生命周期，
+        而 Qt 这边可能还有没走完的异步收尾，两边撞上就是解释器级的崩溃。
+        断开也要等干净再释放。
+        """
+        socket = QLocalSocket(self)
+        try:
+            socket.connectToServer(self._key)
+            if not socket.waitForConnected(TIMEOUT_MS):
+                return False
+
+            socket.write(payload.encode("utf-8"))
+            socket.flush()
+            socket.waitForBytesWritten(TIMEOUT_MS)
+            socket.disconnectFromServer()
+            if socket.state() != QLocalSocket.LocalSocketState.UnconnectedState:
+                socket.waitForDisconnected(TIMEOUT_MS)
+            log.info("已有实例在运行，请求转发完毕")
+            return True
+        finally:
+            socket.close()
+            socket.setParent(None)
+            socket.deleteLater()
 
     def _on_connection(self) -> None:
         if self._server is None:
@@ -74,8 +86,9 @@ class SingleInstance(QObject):
 
         socket.waitForReadyRead(TIMEOUT_MS)
         payload = bytes(socket.readAll()).decode("utf-8", errors="replace")
-        socket.disconnectFromServer()
+        socket.close()
         socket.deleteLater()
+        # 先把连接收干净再发信号：处理函数里可能会弹窗、跑事件循环
         self.message_received.emit(payload)
 
     def release(self) -> None:

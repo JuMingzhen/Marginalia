@@ -18,6 +18,7 @@ from marginalia.services.ocr.base import OcrResult
 
 log = logging.getLogger(__name__)
 
+
 def _install_hint() -> str:
     """安装指引取决于用户是怎么拿到程序的。"""
     from marginalia.app import runtime

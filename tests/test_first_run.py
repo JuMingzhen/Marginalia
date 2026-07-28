@@ -146,9 +146,7 @@ def test_change_location_refuses_in_portable_mode(qapp, tmp_path, monkeypatch):
     (tmp_path / "app" / "data").mkdir()
     paths.reset_cache()
     seen = []
-    monkeypatch.setattr(
-        data_location.QMessageBox, "information", lambda *a, **k: seen.append(True)
-    )
+    monkeypatch.setattr(data_location.QMessageBox, "information", lambda *a, **k: seen.append(True))
 
     assert data_location.change_location() is None
     assert seen  # 有提示，不是静默失败
