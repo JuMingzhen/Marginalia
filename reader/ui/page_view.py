@@ -18,14 +18,17 @@
 from __future__ import annotations
 
 import bisect
+import math
 from enum import StrEnum
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QElapsedTimer, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QKeyEvent,
+    QMouseEvent,
     QPainter,
     QPaintEvent,
+    QPen,
     QResizeEvent,
     QWheelEvent,
 )
@@ -34,6 +37,9 @@ from PySide6.QtWidgets import QAbstractScrollArea, QWidget
 from reader.core import theme as theme_mod
 from reader.core.document import Document
 from reader.core.render import PageRenderer
+from reader.core.textmap import Rect, Selection
+from reader.store.notes import Note, NoteStore
+from reader.ui import colors
 
 #: 100% 缩放 = 物理尺寸还原（Qt 逻辑像素约合 96dpi，PDF 单位是 72dpi）
 BASE_SCALE = 96.0 / 72.0
@@ -44,6 +50,13 @@ ZOOM_STEP = 1.15
 
 #: 视口之外额外预渲染的页数
 PREFETCH_PAGES = 2
+
+#: 按下与松开的距离小于这个值就算「点击」而不是「拖选」
+CLICK_SLOP_PX = 4
+
+#: 跳转到笔记后闪烁提示的时长与频率
+FLASH_DURATION_MS = 1400
+FLASH_INTERVAL_MS = 40
 
 
 class ZoomMode(StrEnum):
@@ -97,6 +110,12 @@ class PageView(QAbstractScrollArea):
     position_changed = Signal(int, float)
     #: 实际缩放倍率（相对 100%）变化
     zoom_changed = Signal(float)
+    #: 拖选结束，参数是 Selection；清空选区时发 None
+    selection_changed = Signal(object)
+    #: 点中了已有的高亮，参数是笔记 id
+    note_clicked = Signal(str)
+    #: 视口滚动或缩放了——浮动工具条该收起来
+    view_shifted = Signal()
 
     GAP = 14  # 页间距（逻辑像素）
     MARGIN = 16  # 画布四周留白
@@ -122,17 +141,40 @@ class PageView(QAbstractScrollArea):
         self._scroller = _SmoothScroller(self)
         self.verticalScrollBar().setSingleStep(48)
 
+        # 笔记与选区
+        self._notes: NoteStore | None = None
+        self._selection: Selection | None = None
+        self._drag_page: int | None = None
+        self._drag_anchor: int | None = None
+        self._drag_origin: QPointF | None = None
+        self._drag_moved = False
+
+        # 跳转到笔记后的闪烁提示
+        self._flash_note_id: str | None = None
+        self._flash_clock = QElapsedTimer()
+        self._flash_timer = QTimer(self)
+        self._flash_timer.setInterval(FLASH_INTERVAL_MS)
+        self._flash_timer.timeout.connect(self._on_flash_tick)
+
     # ------------------------------------------------------------------
     # 文档装载
     # ------------------------------------------------------------------
 
-    def set_document(self, doc: Document | None, renderer: PageRenderer | None) -> None:
+    def set_document(
+        self,
+        doc: Document | None,
+        renderer: PageRenderer | None,
+        notes: NoteStore | None = None,
+    ) -> None:
         if self._renderer is not None:
             self._renderer.page_ready.disconnect(self._on_page_ready)
         self._doc = doc
         self._renderer = renderer
+        self._notes = notes
         if renderer is not None:
             renderer.page_ready.connect(self._on_page_ready)
+        self._clear_selection()
+        self._stop_flash()
         self._scroller.stop()
         self._relayout()
         self.verticalScrollBar().setValue(0)
@@ -279,6 +321,7 @@ class PageView(QAbstractScrollArea):
         if abs(old_scale - self._scale) > 1e-6:
             if self._renderer is not None:
                 self._renderer.invalidate()
+            self.view_shifted.emit()
             self.zoom_changed.emit(self.zoom)
 
     def _update_scrollbars(self) -> None:
@@ -346,7 +389,11 @@ class PageView(QAbstractScrollArea):
                 painter.drawImage(rect, image)
             else:
                 self._paint_placeholder(painter, rect, page)
+
+            self._paint_annotations(painter, page, rect)
+
             painter.setPen(QColor(palette.page_border))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(rect)
 
         # 预取视口外若干页，滚动时才不会一路都是占位图
@@ -355,6 +402,48 @@ class PageView(QAbstractScrollArea):
         for page in range(last + 1, min(self._doc.page_count, last + 1 + PREFETCH_PAGES)):
             self._renderer.prefetch(page, render_scale, self._theme)
 
+    def _paint_annotations(self, painter: QPainter, page: int, page_rect: QRectF) -> None:
+        """在页面位图之上画高亮、闪烁提示和当前选区。"""
+        painter.save()
+        painter.setPen(Qt.PenStyle.NoPen)
+
+        if self._notes is not None:
+            for note in self._notes.by_page(page):
+                color = colors.setup_highlight_painter(painter, note.color, self._theme)
+                painter.setBrush(color)
+                for rect in note.anchor.rects:
+                    painter.drawRect(self._map_rect(page_rect, rect))
+
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+
+        if self._selection is not None and self._selection.page == page:
+            painter.setBrush(colors.SELECTION_COLOR)
+            for rect in self._selection.rects:
+                painter.drawRect(self._map_rect(page_rect, rect))
+
+        self._paint_flash(painter, page, page_rect)
+        painter.restore()
+
+    def _paint_flash(self, painter: QPainter, page: int, page_rect: QRectF) -> None:
+        """跳到某条笔记后，用一圈呼吸的描边告诉用户「就是这儿」。"""
+        if self._flash_note_id is None or self._notes is None:
+            return
+        note = self._notes.get(self._flash_note_id)
+        if note is None or note.anchor.page != page:
+            return
+
+        elapsed = self._flash_clock.elapsed()
+        # 三次呼吸，整体线性淡出
+        pulse = abs(math.sin(elapsed / FLASH_DURATION_MS * 3 * math.pi))
+        fade = max(0.0, 1.0 - elapsed / FLASH_DURATION_MS)
+        color = QColor(colors.FLASH_COLOR)
+        color.setAlpha(round(220 * pulse * fade))
+
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(color, 2.5))
+        for rect in note.anchor.rects:
+            painter.drawRect(self._map_rect(page_rect, rect).adjusted(-2, -2, 2, 2))
+
     def _paint_placeholder(self, painter: QPainter, rect: QRectF, page: int) -> None:
         palette = theme_mod.get(self._theme)
         painter.fillRect(rect, QColor(palette.page_bg))
@@ -362,8 +451,209 @@ class PageView(QAbstractScrollArea):
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(page + 1))
 
     # ------------------------------------------------------------------
+    # 坐标换算
+    # ------------------------------------------------------------------
+
+    def _map_rect(self, page_rect: QRectF, rect: Rect) -> QRectF:
+        """PDF 坐标 (pt) → 视口坐标。"""
+        scale = self._scale
+        return QRectF(
+            page_rect.x() + rect[0] * scale,
+            page_rect.y() + rect[1] * scale,
+            (rect[2] - rect[0]) * scale,
+            (rect[3] - rect[1]) * scale,
+        )
+
+    def _page_rect(self, page: int) -> QRectF:
+        return QRectF(
+            self._x_offset() + self._page_left(page),
+            -float(self.verticalScrollBar().value()) + self._page_tops[page],
+            self._page_width(page),
+            self._page_height(page),
+        )
+
+    def _page_at(self, pos: QPointF) -> int | None:
+        if self._doc is None or not self._page_tops:
+            return None
+        y = self.verticalScrollBar().value() + pos.y()
+        return max(0, min(self._doc.page_count - 1, bisect.bisect_right(self._page_tops, y) - 1))
+
+    def _to_pdf(self, page: int, pos: QPointF) -> tuple[float, float]:
+        """视口坐标 → 该页的 PDF 坐标 (pt)。超出页面范围也照算，拖选时才不会卡住。"""
+        rect = self._page_rect(page)
+        return ((pos.x() - rect.x()) / self._scale, (pos.y() - rect.y()) / self._scale)
+
+    # ------------------------------------------------------------------
+    # 选区与笔记
+    # ------------------------------------------------------------------
+
+    @property
+    def selection(self) -> Selection | None:
+        return self._selection
+
+    def selection_screen_rect(self) -> QRectF | None:
+        """当前选区在视口里的包围盒，用于定位浮动工具条。"""
+        if self._selection is None or not self._selection.rects:
+            return None
+        page_rect = self._page_rect(self._selection.page)
+        boxes = [self._map_rect(page_rect, r) for r in self._selection.rects]
+        result = boxes[0]
+        for box in boxes[1:]:
+            result = result.united(box)
+        return result
+
+    def clear_selection(self) -> None:
+        if self._selection is not None:
+            self._clear_selection()
+            self.selection_changed.emit(None)
+
+    def _clear_selection(self) -> None:
+        self._selection = None
+        self._drag_page = None
+        self._drag_anchor = None
+        self.viewport().update()
+
+    def notes_refreshed(self) -> None:
+        """笔记增删改之后重画。"""
+        self.viewport().update()
+
+    def reveal_note(self, note: Note) -> None:
+        """滚到某条笔记并闪一下。
+
+        不是把笔记顶到屏幕最上沿——那样上下文全被切掉了。放在视口上方三分之一处，
+        前后文都还在，眼睛也不用重新找位置。
+        """
+        if self._doc is None or not self._page_tops:
+            return
+        page = max(0, min(self._doc.page_count - 1, note.anchor.page))
+        target = self._page_tops[page] + note.anchor.top * self._scale
+        target -= self.viewport().height() / 3.0
+
+        self._scroller.stop()
+        bar = self.verticalScrollBar()
+        bar.setValue(round(max(bar.minimum(), min(bar.maximum(), target))))
+        self.flash_note(note.id)
+
+    def flash_note(self, note_id: str) -> None:
+        self._flash_note_id = note_id
+        self._flash_clock.restart()
+        self._flash_timer.start()
+        self.viewport().update()
+
+    def _stop_flash(self) -> None:
+        self._flash_timer.stop()
+        self._flash_note_id = None
+
+    def _on_flash_tick(self) -> None:
+        if self._flash_clock.elapsed() >= FLASH_DURATION_MS:
+            self._stop_flash()
+        self.viewport().update()
+
+    def _note_at(self, page: int, x: float, y: float) -> str | None:
+        """该点是否落在某条笔记的高亮上。后加的笔记压在上面，所以倒着找。"""
+        if self._notes is None:
+            return None
+        for note in reversed(self._notes.by_page(page)):
+            for x0, y0, x1, y1 in note.anchor.rects:
+                if x0 <= x <= x1 and y0 <= y <= y1:
+                    return note.id
+        return None
+
+    # ------------------------------------------------------------------
     # 事件
     # ------------------------------------------------------------------
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() != Qt.MouseButton.LeftButton or self._doc is None:
+            super().mousePressEvent(event)
+            return
+
+        pos = event.position()
+        page = self._page_at(pos)
+        if page is None:
+            return
+        x, y = self._to_pdf(page, pos)
+
+        # 点在已有高亮上：打开那条笔记，而不是开始新的选择
+        note_id = self._note_at(page, x, y)
+        if note_id is not None:
+            self._clear_selection()
+            self.selection_changed.emit(None)
+            self.note_clicked.emit(note_id)
+            return
+
+        text_map = self._doc.text_map(page)
+        index = text_map.nearest(x, y)
+        if index is None:
+            # 扫描版没有文字层，划不出东西来
+            self.clear_selection()
+            return
+
+        self._drag_page = page
+        self._drag_anchor = index
+        self._drag_origin = pos
+        self._drag_moved = False
+        self._selection = text_map.select(index, index)
+        self.selection_changed.emit(None)  # 拖动期间先收起工具条
+        self.viewport().update()
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if self._drag_page is None or self._doc is None:
+            super().mouseMoveEvent(event)
+            return
+
+        pos = event.position()
+        if self._drag_origin is not None:
+            moved = (pos - self._drag_origin).manhattanLength()
+            if moved > CLICK_SLOP_PX:
+                self._drag_moved = True
+
+        # 始终按起始页换算：鼠标滑到相邻页上时，选区仍然限制在原来那一页
+        x, y = self._to_pdf(self._drag_page, pos)
+        text_map = self._doc.text_map(self._drag_page)
+        index = text_map.nearest(x, y)
+        if index is not None and self._drag_anchor is not None:
+            self._selection = text_map.select(self._drag_anchor, index)
+            self.viewport().update()
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if self._drag_page is None:
+            super().mouseReleaseEvent(event)
+            return
+
+        self._drag_page = None
+        self._drag_origin = None
+
+        if not self._drag_moved:
+            # 只是点了一下：清掉选区，别弹工具条
+            self._clear_selection()
+            self.selection_changed.emit(None)
+            return
+
+        if self._selection is not None and not self._selection.is_empty:
+            self.selection_changed.emit(self._selection)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        """双击选中整行——读书时想标的通常是一句话，不是一个词。"""
+        if event.button() != Qt.MouseButton.LeftButton or self._doc is None:
+            super().mouseDoubleClickEvent(event)
+            return
+
+        pos = event.position()
+        page = self._page_at(pos)
+        if page is None:
+            return
+        x, y = self._to_pdf(page, pos)
+        text_map = self._doc.text_map(page)
+        index = text_map.nearest(x, y)
+        if index is None:
+            return
+
+        first, last = text_map.line_bounds(index)
+        self._selection = text_map.select(first, last)
+        self._drag_page = None
+        self.viewport().update()
+        self.selection_changed.emit(self._selection)
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -374,6 +664,7 @@ class PageView(QAbstractScrollArea):
         if self._renderer is not None:
             self._renderer.invalidate()
         self.viewport().update()
+        self.view_shifted.emit()
         page, ratio = self.current_position()
         self.position_changed.emit(page, ratio)
 

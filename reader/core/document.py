@@ -8,18 +8,23 @@
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
 import fitz
 
 from reader.core.doc_id import compute_doc_id
+from reader.core.textmap import PageTextMap
 
 log = logging.getLogger(__name__)
 
 # 判定是否有文字层时抽查的页数，以及判定为「有文字」的字符数下限
 TEXT_PROBE_PAGES = 10
 TEXT_PROBE_MIN_CHARS = 200
+
+#: 词框索引最多缓存多少页
+TEXT_MAP_CACHE_PAGES = 48
 
 
 @dataclass(frozen=True)
@@ -42,6 +47,7 @@ class Document:
         self._page_sizes: list[tuple[float, float]] = [
             (page.rect.width, page.rect.height) for page in self._doc
         ]
+        self._text_maps: OrderedDict[int, PageTextMap] = OrderedDict()
 
     # ---------- 基本信息 ----------
 
@@ -103,6 +109,23 @@ class Document:
 
     def page_text(self, index: int) -> str:
         return self._doc[index].get_text("text")
+
+    def text_map(self, index: int) -> PageTextMap:
+        """某页的词框索引，供划词使用。
+
+        抽词要解析页面内容流，几十毫秒起步，滚动时每帧都做会卡；按 LRU 缓存住。
+        整本缓存则不行——几百页的书词表能占几十 MB。
+        """
+        cached = self._text_maps.get(index)
+        if cached is not None:
+            self._text_maps.move_to_end(index)
+            return cached
+
+        text_map = PageTextMap.from_page(self._doc[index], index)
+        self._text_maps[index] = text_map
+        while len(self._text_maps) > TEXT_MAP_CACHE_PAGES:
+            self._text_maps.popitem(last=False)
+        return text_map
 
     # ---------- 生命周期 ----------
 

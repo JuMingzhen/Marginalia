@@ -15,16 +15,22 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QSplitter,
 )
 
 from reader.app.config import Config
 from reader.core import theme as theme_mod
 from reader.core.document import Document
 from reader.core.render import PageRenderer
+from reader.core.textmap import Selection
 from reader.store import progress as progress_store
 from reader.store.library import Library
+from reader.store.notes import DEFAULT_COLOR, Anchor, Note, NoteStore
+from reader.ui.note_editor import NoteEditor
+from reader.ui.notes_panel import NotesPanel
 from reader.ui.outline_panel import OutlinePanel
 from reader.ui.page_view import PageView, ZoomMode
+from reader.ui.selection_toolbar import SelectionToolbar
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +45,7 @@ class MainWindow(QMainWindow):
         self._library = Library()
         self._doc: Document | None = None
         self._renderer: PageRenderer | None = None
+        self._notes: NoteStore | None = None
         self._saved_position: tuple[int, float] | None = None
 
         self.setWindowTitle("Reader")
@@ -49,11 +56,16 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self._page_view)
 
         self._build_outline_dock()
+        self._build_notes_dock()
+        self._build_selection_toolbar()
         self._build_actions()
         self._build_statusbar()
 
         self._page_view.position_changed.connect(self._on_position_changed)
         self._page_view.zoom_changed.connect(self._on_zoom_changed)
+        self._page_view.selection_changed.connect(self._on_selection_changed)
+        self._page_view.note_clicked.connect(self._on_note_clicked)
+        self._page_view.view_shifted.connect(self._selection_toolbar.hide)
 
         self._restore_session()
 
@@ -78,6 +90,36 @@ class MainWindow(QMainWindow):
         )
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._dock)
         self._dock.setMinimumWidth(200)
+
+    def _build_notes_dock(self) -> None:
+        self._notes_panel = NotesPanel(self)
+        self._notes_panel.note_activated.connect(self._on_note_activated)
+
+        self._note_editor = NoteEditor(self)
+        self._note_editor.save_requested.connect(self._on_note_save)
+        self._note_editor.delete_requested.connect(self._on_note_delete)
+
+        splitter = QSplitter(Qt.Orientation.Vertical, self)
+        splitter.addWidget(self._notes_panel)
+        splitter.addWidget(self._note_editor)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 2)
+
+        self._notes_dock = QDockWidget("笔记", self)
+        self._notes_dock.setObjectName("notes_dock")
+        self._notes_dock.setWidget(splitter)
+        self._notes_dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._notes_dock)
+        self._notes_dock.setMinimumWidth(280)
+
+    def _build_selection_toolbar(self) -> None:
+        # 挂在 viewport 上，坐标才和选区一致
+        self._selection_toolbar = SelectionToolbar(self._page_view.viewport())
+        self._selection_toolbar.highlight_requested.connect(self._on_highlight)
+        self._selection_toolbar.annotate_requested.connect(self._on_annotate)
+        self._selection_toolbar.set_explain_enabled(False, "LLM 辅助尚未接入")
 
     def _build_actions(self) -> None:
         menubar = self.menuBar()
@@ -161,6 +203,31 @@ class MainWindow(QMainWindow):
         goto.triggered.connect(self._on_goto_page)
         view_menu.addAction(goto)
 
+        # ---- 笔记 ----
+        notes_menu = menubar.addMenu("笔记(&N)")
+
+        # h / n 是单字母快捷键，必须限定在画布上生效，否则在笔记里打字时
+        # 每敲一个 h 都会跑去高亮
+        highlight = QAction("高亮选中文字", self)
+        highlight.setShortcut(QKeySequence("H"))
+        highlight.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        highlight.triggered.connect(lambda: self._on_highlight(DEFAULT_COLOR))
+        self._page_view.addAction(highlight)
+        notes_menu.addAction(highlight)
+
+        annotate = QAction("为选中文字写批注", self)
+        annotate.setShortcut(QKeySequence("N"))
+        annotate.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        annotate.triggered.connect(self._on_annotate)
+        self._page_view.addAction(annotate)
+        notes_menu.addAction(annotate)
+
+        notes_menu.addSeparator()
+        toggle_notes = self._notes_dock.toggleViewAction()
+        toggle_notes.setText("显示笔记侧栏")
+        toggle_notes.setShortcut(QKeySequence("Ctrl+Shift+B"))
+        notes_menu.addAction(toggle_notes)
+
     def _build_statusbar(self) -> None:
         bar = self.statusBar()
 
@@ -231,8 +298,10 @@ class MainWindow(QMainWindow):
 
         self._doc = doc
         self._renderer = renderer
-        self._page_view.set_document(doc, renderer)
+        self._notes = NoteStore(doc.doc_id)
+        self._page_view.set_document(doc, renderer, self._notes)
         self._outline.set_outline(doc.outline())
+        self._refresh_notes()
 
         has_text = doc.has_text_layer()
         self._library.record_open(
@@ -258,7 +327,12 @@ class MainWindow(QMainWindow):
         return True
 
     def _release_document(self) -> None:
-        self._page_view.set_document(None, None)
+        self._note_editor.flush()
+        self._note_editor.set_note(None)
+        self._notes_panel.set_notes([])
+        self._selection_toolbar.hide()
+        self._notes = None
+        self._page_view.set_document(None, None, None)
         if self._renderer is not None:
             self._renderer.shutdown()
             self._renderer = None
@@ -334,6 +408,98 @@ class MainWindow(QMainWindow):
             self._theme_actions[key].setChecked(True)
         self._config.set("theme", key)
 
+    # ------------------------------------------------------------------
+    # 笔记
+    # ------------------------------------------------------------------
+
+    def _refresh_notes(self, current_id: str | None = None) -> None:
+        notes = self._notes.all() if self._notes is not None else []
+        self._notes_panel.set_notes(notes, current_id)
+        self._page_view.notes_refreshed()
+
+    def _on_selection_changed(self, selection: Selection | None) -> None:
+        if selection is None or selection.is_empty:
+            self._selection_toolbar.hide()
+            return
+        rect = self._page_view.selection_screen_rect()
+        if rect is None:
+            self._selection_toolbar.hide()
+            return
+        self._selection_toolbar.show_for(rect)
+
+    def _note_from_selection(self, color: str = DEFAULT_COLOR) -> Note | None:
+        selection = self._page_view.selection
+        if self._notes is None or selection is None or selection.is_empty:
+            return None
+
+        note = self._notes.create(
+            anchor=Anchor(
+                kind="text",
+                page=selection.page,
+                rects=list(selection.rects),
+                word_range=(selection.start, selection.end),
+            ),
+            quote=selection.text,
+            quote_source="textlayer",
+            color=color,
+        )
+        self._selection_toolbar.hide()
+        self._page_view.clear_selection()
+        self._refresh_notes(current_id=note.id)
+        return note
+
+    def _on_highlight(self, color: str) -> None:
+        note = self._note_from_selection(color)
+        if note is None:
+            self.statusBar().showMessage("先选中一段文字", 2000)
+            return
+        self.statusBar().showMessage(f"已高亮（第 {note.anchor.page + 1} 页）", 2000)
+
+    def _on_annotate(self) -> None:
+        note = self._note_from_selection()
+        if note is None:
+            self.statusBar().showMessage("先选中一段文字", 2000)
+            return
+        self._notes_dock.show()
+        self._note_editor.set_note(note)
+        self._note_editor.focus_body()
+
+    def _on_note_clicked(self, note_id: str) -> None:
+        """点中了页面上的高亮。"""
+        note = self._notes.get(note_id) if self._notes else None
+        if note is None:
+            return
+        self._notes_dock.show()
+        self._notes_panel.select(note_id)
+        self._note_editor.set_note(note)
+        self._page_view.flash_note(note_id)
+
+    def _on_note_activated(self, note_id: str) -> None:
+        """从侧栏点了一条笔记：滚回原文位置。"""
+        note = self._notes.get(note_id) if self._notes else None
+        if note is None:
+            return
+        self._note_editor.set_note(note)
+        self._page_view.reveal_note(note)
+
+    def _on_note_save(self, note_id: str, patch: dict) -> None:
+        if self._notes is None:
+            return
+        updated = self._notes.update(note_id, **patch)
+        if updated is None:
+            return
+        # 只刷新列表，不回写编辑器——那样会把光标弹回开头
+        self._note_editor.sync_saved(updated)
+        self._refresh_notes(current_id=note_id)
+
+    def _on_note_delete(self, note_id: str) -> None:
+        if self._notes is None:
+            return
+        self._notes.delete(note_id)
+        self._note_editor.set_note(None)
+        self._refresh_notes()
+        self.statusBar().showMessage("笔记已删除", 2000)
+
     def _save_progress(self) -> None:
         if self._doc is None or self._saved_position is None:
             return
@@ -362,6 +528,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self._save_timer.stop()
+        self._note_editor.flush()
         self._save_progress()
         self._persist_session()
         self._release_document()

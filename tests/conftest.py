@@ -31,6 +31,21 @@ def pump(qapp):
 
 
 @pytest.fixture
+def prose_pdf(tmp_path):
+    """每页三行英文，用来测划词。"""
+    path = tmp_path / "prose.pdf"
+    doc = fitz.open()
+    for i in range(12):
+        page = doc.new_page(width=595, height=842)
+        page.insert_text((72, 100), f"Attention is all you need page {i + 1}", fontsize=12)
+        page.insert_text((72, 130), "The dominant sequence transduction models", fontsize=12)
+        page.insert_text((72, 160), "are based on recurrent neural networks", fontsize=12)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+@pytest.fixture
 def sample_pdf(tmp_path):
     path = tmp_path / "sample.pdf"
     doc = fitz.open()
