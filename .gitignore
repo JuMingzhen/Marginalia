@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+*.spec
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# 本地运行产生的用户数据（正常在 %USERPROFILE%\.reader，此项仅防误放）
+.reader/
+*.log

@@ -1,0 +1,36 @@
+<#
+.SYNOPSIS
+    启动 Reader。
+
+.DESCRIPTION
+    用 %USERPROFILE%\.venvs\reader 里的解释器，以仓库根目录作为 PYTHONPATH 运行，
+    不需要把项目 pip install 进虚拟环境——源码改了直接重启即可生效。
+
+.PARAMETER Quiet
+    用 pythonw.exe 启动，不带控制台窗口（日志将不可见）。
+
+.PARAMETER Path
+    启动时直接打开的 PDF 文件路径。
+#>
+[CmdletBinding()]
+param(
+    [switch]$Quiet,
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$Path
+)
+
+$ErrorActionPreference = "Stop"
+
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+$VenvDir = Join-Path $env:USERPROFILE ".venvs\reader"
+$Exe = if ($Quiet) { "Scripts\pythonw.exe" } else { "Scripts\python.exe" }
+$Python = Join-Path $VenvDir $Exe
+
+if (-not (Test-Path $Python)) {
+    throw "找不到虚拟环境，请先运行 $(Join-Path $PSScriptRoot 'setup.ps1')"
+}
+
+$env:PYTHONPATH = $RepoRoot
+$env:PYTHONUTF8 = "1"
+
+& $Python -m reader @Path
