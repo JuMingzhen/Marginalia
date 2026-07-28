@@ -104,6 +104,28 @@ Marginalia.exe --selftest
 报告同时写到 stdout 和 `%TEMP%\marginalia-selftest.txt`（窗口程序没有控制台）。
 `build.py` 会自动跑一遍，不过也可以手动跑。
 
+## 发布
+
+版本号只写在 `marginalia/__init__.py`，别处都从那儿读。发布流程：
+
+```bash
+# 1. 改版本号和 CHANGELOG
+vim marginalia/__init__.py CHANGELOG.md
+git commit -am "release: v0.2.0"
+
+# 2. 打 tag 推上去，CI 自动构建
+git tag v0.2.0
+git push origin main v0.2.0
+```
+
+GitHub Actions 在 `windows-latest` 上构建（PyInstaller 不能交叉编译），跑自检，
+产出安装程序和便携版，创建一个**草稿** Release。到 GitHub 上确认无误后手动发布。
+
+CI 会核对 tag 和 `__version__` 是否一致——对不上直接失败，免得发出去版本号是错的包。
+
+不打 tag 也可以手动触发 `发布` 工作流做一次构建（产物走 artifact，不建 Release），
+用来验证打包链路没坏。
+
 ## 测试约定
 
 - 所有涉及数据目录的测试用 `MARGINALIA_DATA_DIR` 指到 `tmp_path`，互不干扰

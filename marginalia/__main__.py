@@ -1,6 +1,6 @@
 """程序入口。
 
-    python -m marginalia [某本书.pdf]
+python -m marginalia [某本书.pdf]
 """
 
 from __future__ import annotations

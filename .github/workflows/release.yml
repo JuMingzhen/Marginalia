@@ -1,0 +1,90 @@
+name: 发布
+
+# 打一个 v 开头的 tag 就构建并发布：
+#     git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "只构建，不创建 Release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write # 创建 Release 需要
+
+jobs:
+  build:
+    name: 构建 Windows 安装包
+    # PyInstaller 不能交叉编译，必须在 Windows 上跑。
+    # windows-latest 镜像自带 Inno Setup 6。
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: 安装构建依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[build,ocr]"
+
+      - name: 核对 tag 与版本号
+        # tag 和 marginalia/__init__.py 对不上的话，发出去的包版本是错的
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart("v")
+          $version = python -c "import marginalia; print(marginalia.__version__)"
+          Write-Host "tag=$tag  __version__=$version"
+          if ($tag -ne $version) {
+            throw "tag ($tag) 与 marginalia/__init__.py ($version) 不一致"
+          }
+
+      - name: 确认 Inno Setup 可用
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --no-progress -y
+          }
+          & $iscc /? | Select-Object -First 1
+
+      - name: 构建（含自检）
+        run: python packaging/build.py --all
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: marginalia-windows
+          path: |
+            packaging/output/*.exe
+            packaging/output/*.zip
+          if-no-files-found: error
+
+      - name: 发布 Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true # 先建草稿，人工确认后再发布
+          generate_release_notes: true
+          files: |
+            packaging/output/*.exe
+            packaging/output/*.zip
+          body: |
+            ## 下载
+
+            - **Marginalia-${{ github.ref_name }}-Setup.exe** — 安装程序，可选安装位置、快捷方式、PDF 文件关联
+            - **Marginalia-${{ github.ref_name }}-portable.zip** — 解压即用，免安装
+
+            安装程序未做代码签名，Windows 会提示「Windows 已保护你的电脑」，
+            点 **更多信息 → 仍要运行** 即可。
+
+            你的笔记不会存在程序目录里——首次启动时程序会问你放哪（默认「文档\Marginalia」），
+            卸载不会删除它们。

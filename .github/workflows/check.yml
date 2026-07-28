@@ -1,0 +1,40 @@
+name: 检查
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 测试与静态检查
+    # Qt 用 offscreen 后端，Linux 跑得比 Windows 快得多，日常检查用它就够
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: 静态检查
+        run: |
+          ruff check marginalia tests
+          ruff format --check marginalia tests
+
+      - name: 测试
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest tests/ -q
+
+      - name: 自检（源码态）
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m marginalia --selftest
