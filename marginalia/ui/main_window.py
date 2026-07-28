@@ -375,6 +375,19 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, lambda: self._page_view.goto_page(saved.page, saved.y_ratio))
         return True
 
+    def open_from_other_instance(self, path: str) -> None:
+        """另一个进程被启动了，把它要开的书接过来。
+
+        窗口可能是最小化的或被压在别的窗口下面——用户刚双击了一本书，
+        得让他真的看到。
+        """
+        if self.isMinimized():
+            self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        if path.strip():
+            self.open_path(Path(path))
+
     def _release_document(self) -> None:
         self._note_editor.flush()
         self._note_editor.set_note(None)
