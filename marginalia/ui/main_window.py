@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, Qt, QTimer
+from PySide6.QtCore import QByteArray, Qt, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
+    QDesktopServices,
     QDragEnterEvent,
     QDropEvent,
     QImage,
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
     QSplitter,
 )
 
+from marginalia.app import paths
 from marginalia.app.config import Config
 from marginalia.core import theme as theme_mod
 from marginalia.core.document import Document
@@ -35,6 +37,7 @@ from marginalia.store import clips as clip_store
 from marginalia.store import progress as progress_store
 from marginalia.store.library import Library
 from marginalia.store.notes import DEFAULT_COLOR, Anchor, Note, NoteStore
+from marginalia.ui.data_location import change_location
 from marginalia.ui.note_editor import NoteEditor
 from marginalia.ui.notes_panel import NotesPanel
 from marginalia.ui.outline_panel import OutlinePanel
@@ -155,6 +158,17 @@ class MainWindow(QMainWindow):
 
         self._recent_menu = file_menu.addMenu("最近打开")
         self._recent_menu.aboutToShow.connect(self._rebuild_recent_menu)
+
+        file_menu.addSeparator()
+
+        data_location = QAction("笔记存放位置…", self)
+        data_location.setToolTip("查看或更改书库与笔记的存放文件夹")
+        data_location.triggered.connect(self._on_change_data_location)
+        file_menu.addAction(data_location)
+
+        open_data_dir = QAction("在资源管理器中打开数据文件夹", self)
+        open_data_dir.triggered.connect(self._on_reveal_data_dir)
+        file_menu.addAction(open_data_dir)
 
         file_menu.addSeparator()
         quit_action = QAction("退出", self)
@@ -402,6 +416,14 @@ class MainWindow(QMainWindow):
                 action.setEnabled(False)
                 action.setText(f"{entry.title}（文件已丢失）")
             action.triggered.connect(lambda _checked=False, p=entry.path: self.open_path(p))
+
+    def _on_change_data_location(self) -> None:
+        if change_location(self) is not None:
+            self.statusBar().showMessage("数据位置已更改，重启后生效", 8000)
+
+    def _on_reveal_data_dir(self) -> None:
+        directory = paths.ensure_dir(paths.data_dir())
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory)))
 
     def _on_goto_page(self) -> None:
         if self._doc is None:
