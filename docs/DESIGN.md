@@ -1,7 +1,7 @@
-# Reader — 本地 PDF 阅读与笔记桌面应用 · 设计文档
+# Marginalia — 本地 PDF 阅读与笔记桌面应用 · 设计文档
 
-> 状态：设计稿 v2（2026-07-28）
-> 形态：Windows 原生桌面程序，纯本地、离线优先。
+> 状态：v3（2026-07-29）
+> 形态：Windows 原生桌面程序，装完双击即用，纯本地、离线优先。
 > 核心价值：**读得舒服** + **笔记可回溯**。
 
 ---
@@ -36,7 +36,9 @@
 | 本地 OCR | **RapidOCR (ONNXRuntime)** | 中英双语、CPU 可跑、离线、模型约 15MB |
 | LLM | Anthropic SDK（可插拔，兼容 OpenAI 协议） | 划词翻译/解释 |
 | 存储 | JSONL / JSON / PNG | 文件系统即数据库 |
-| 打包 | PyInstaller → 单个 `Reader.exe` | |
+| 打包 | PyInstaller（onedir） | onefile 每次启动都要解压 200MB 到临时目录，冷启动要好几秒 |
+| 安装 | Inno Setup | 标准向导、可选安装位置、快捷方式、卸载器；OCR 作为可选组件 |
+| 构建 | GitHub Actions（windows-latest） | PyInstaller 不能交叉编译，必须在 Windows 上跑 |
 
 ### 为什么是 Qt 而不是 Electron / Tauri
 
@@ -56,9 +58,27 @@ MuPDF 的渲染质量本身也不输 PDF.js——它是 SumatraPDF、mupdf、Zat
 
 ### 3.1 目录布局
 
+**程序目录和数据目录是分开的。** 安装程序问的是程序装在哪；笔记存在哪由程序自己
+再问一次，默认 `%USERPROFILE%\Documents\Marginalia\`。
+
+把两者合一是 Windows 上的经典陷阱：装进 `C:\Program Files\` 的话该目录受 UAC 保护，
+非提权进程写不进去，第一条高亮就存不下来；而且卸载会把攒了几年的笔记一起删掉，
+备份软件通常也跳过 Program Files。
+
+数据目录按四级解析，第一个命中的生效：
+
+| 优先级 | 来源 | 用途 |
+|---|---|---|
+| 1 | `MARGINALIA_DATA_DIR` 环境变量 | 脚本与测试 |
+| 2 | 程序目录旁的 `data\` 文件夹 | **便携模式**：装到 U 盘或非系统盘，程序和数据在一起 |
+| 3 | 配置文件里记录的用户选定路径 | 首次运行时选的，之后可改 |
+| 4 | `%USERPROFILE%\Documents\Marginalia\` | 默认 |
+
+便携模式保留了「所有东西都在一个文件夹」这种用法，只是不作为默认。
+
 ```
-%USERPROFILE%\.reader\             # 数据根目录，可配置
-  config.json                      # API Key、主题、OCR 后端、数据目录
+<数据目录>\
+  config.json                      # API Key、主题、OCR 后端
   library.jsonl                    # 书库索引，一行一本
   docs/
     d_9f2a1c4b8e3d/                # doc_id = sha256(文件内容前 8MB + 文件大小)[:12]
@@ -284,9 +304,22 @@ M1 + M2 是最小可用产品。**M3 是你的关键场景，优先级高于 M4�
 
 ---
 
-## 7. 待定问题
+## 7. 已定的取舍
 
-1. **导入策略**：PDF 拷贝进 `.reader/docs/` 统一管理，还是只记原路径引用？（引用省空间，但文件被删就断链；也可两者都支持，导入时选）
-2. **数据根目录**：默认 `%USERPROFILE%\.reader`。要不要放到能被 git / 网盘备份的位置？
-3. **划词翻译的留痕**：翻译结果是弹浮层即用即弃，还是默认也落一条笔记？
-4. **开发工位**：代码在 WSL 编辑，运行需在 Windows 侧装 Python 3.13 + 依赖。要不要我顺手写一份 Windows 侧的 `setup.ps1` 和运行脚本？
+- **导入是引用不是拷贝**：只记原文件路径，不把 PDF 搬进数据目录。书还在你自己的
+  目录里，别的工具照样能打开。文件被移动后靠内容哈希重新认出来。
+- **划词翻译即用即弃**：结果是浮层，不自动落笔记；觉得有价值再手动存。
+- **卸载不删数据**：卸载程序只删程序目录，数据目录原样保留。
+
+## 8. 分发
+
+| 产物 | 说明 |
+|---|---|
+| `Marginalia-x.y.z-Setup.exe` | 安装向导：选安装位置、开始菜单/桌面快捷方式、`.pdf` 关联（可选）、OCR 可选组件 |
+| `Marginalia-x.y.z-portable.zip` | 解压即用，免安装、免管理员权限，自带 `data\` 即为便携模式 |
+
+打 tag 后由 GitHub Actions 在 `windows-latest` 上构建并挂到 Release。
+
+**未签名的可执行文件会触发 SmartScreen**（「Windows 已保护你的电脑」），需要点
+「更多信息 → 仍要运行」。代码签名证书一年约 $200，个人项目不值得，在 README 里
+写清楚即可。

@@ -11,9 +11,11 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
-from marginalia.app import paths
+import marginalia
+from marginalia.app import paths, runtime
 from marginalia.app.config import Config
 from marginalia.ui.main_window import MainWindow
 
@@ -33,6 +35,9 @@ def _setup_logging() -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marginalia", description="本地 PDF 阅读与笔记工具")
     parser.add_argument("path", nargs="?", help="启动时直接打开的 PDF")
+    parser.add_argument(
+        "--version", action="version", version=f"Marginalia {marginalia.__version__}"
+    )
     args = parser.parse_args(argv)
 
     _setup_logging()
@@ -46,6 +51,11 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationName("Marginalia")
     app.setApplicationDisplayName("Marginalia")
     app.setOrganizationName("Marginalia")
+    app.setApplicationVersion(marginalia.__version__)
+
+    icon = runtime.icon_path()
+    if icon.exists():
+        app.setWindowIcon(QIcon(str(icon)))
 
     config = Config()
     window = MainWindow(config)
