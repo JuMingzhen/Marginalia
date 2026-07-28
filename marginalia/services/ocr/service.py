@@ -11,7 +11,7 @@ import logging
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 from PySide6.QtGui import QImage
 
-from reader.services.ocr.base import OcrBackend, OcrResult, qimage_to_array
+from marginalia.services.ocr.base import OcrBackend, OcrResult, qimage_to_array
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class OcrService(QObject):
     def __init__(self, backend: OcrBackend | None = None, parent: QObject | None = None) -> None:
         super().__init__(parent)
         if backend is None:
-            from reader.services.ocr.rapid import RapidOcrBackend
+            from marginalia.services.ocr.rapid import RapidOcrBackend
 
             backend = RapidOcrBackend()
         self._backend = backend

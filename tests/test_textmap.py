@@ -5,7 +5,7 @@ from __future__ import annotations
 import fitz
 import pytest
 
-from reader.core.textmap import PageTextMap, Word
+from marginalia.core.textmap import PageTextMap, Word
 
 
 @pytest.fixture

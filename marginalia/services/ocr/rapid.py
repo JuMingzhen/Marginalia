@@ -13,8 +13,8 @@ import threading
 
 import numpy as np
 
-from reader.core.textmap import Word
-from reader.services.ocr.base import OcrResult
+from marginalia.core.textmap import Word
+from marginalia.services.ocr.base import OcrResult
 
 log = logging.getLogger(__name__)
 

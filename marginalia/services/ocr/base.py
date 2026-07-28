@@ -12,7 +12,7 @@ from typing import Protocol
 import numpy as np
 from PySide6.QtGui import QImage
 
-from reader.core.textmap import Word
+from marginalia.core.textmap import Word
 
 
 @dataclass

@@ -69,8 +69,8 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt pytest ruff
 
 .venv/bin/python -m pytest tests/   # 测试
-.venv/bin/ruff check reader/ tests/ # 检查
-.venv/bin/ruff format reader/       # 格式化
+.venv/bin/ruff check marginalia/ tests/ # 检查
+.venv/bin/ruff format marginalia/       # 格式化
 ```
 
 分支约定：功能在 `feat/*` 分支上做，完成后合并回 `main`。

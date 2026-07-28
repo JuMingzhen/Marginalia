@@ -15,9 +15,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from reader.store.notes import Note
-from reader.ui.note_editor import note_tooltip
-from reader.ui.widgets import color_icon
+from marginalia.store.notes import Note
+from marginalia.ui.note_editor import note_tooltip
+from marginalia.ui.widgets import color_icon
 
 _NOTE_ID_ROLE = Qt.ItemDataRole.UserRole
 SUMMARY_MAX_CHARS = 90

@@ -28,7 +28,7 @@ import numpy as np
 from PySide6.QtCore import QMutex, QMutexLocker, QObject, QThread, Signal, Slot
 from PySide6.QtGui import QImage
 
-from reader.core import theme as theme_mod
+from marginalia.core import theme as theme_mod
 
 log = logging.getLogger(__name__)
 

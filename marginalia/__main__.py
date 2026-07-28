@@ -1,6 +1,6 @@
 """程序入口。
 
-    python -m reader [某本书.pdf]
+    python -m marginalia [某本书.pdf]
 """
 
 from __future__ import annotations
@@ -13,9 +13,9 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
-from reader.app import paths
-from reader.app.config import Config
-from reader.ui.main_window import MainWindow
+from marginalia.app import paths
+from marginalia.app.config import Config
+from marginalia.ui.main_window import MainWindow
 
 LOG_FORMAT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
 
@@ -23,7 +23,7 @@ LOG_FORMAT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
 def _setup_logging() -> None:
     handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
     try:
-        log_file = paths.ensure_dir(paths.data_dir()) / "reader.log"
+        log_file = paths.ensure_dir(paths.data_dir()) / "marginalia.log"
         handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
     except OSError:
         pass  # 日志文件写不了也不该拦住程序启动
@@ -31,7 +31,7 @@ def _setup_logging() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="reader", description="本地 PDF 阅读与笔记工具")
+    parser = argparse.ArgumentParser(prog="marginalia", description="本地 PDF 阅读与笔记工具")
     parser.add_argument("path", nargs="?", help="启动时直接打开的 PDF")
     args = parser.parse_args(argv)
 
@@ -43,9 +43,9 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     app = QApplication(sys.argv[:1])
-    app.setApplicationName("Reader")
-    app.setApplicationDisplayName("Reader")
-    app.setOrganizationName("Reader")
+    app.setApplicationName("Marginalia")
+    app.setApplicationDisplayName("Marginalia")
+    app.setOrganizationName("Marginalia")
 
     config = Config()
     window = MainWindow(config)

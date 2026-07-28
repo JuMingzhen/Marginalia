@@ -14,8 +14,8 @@ import time
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
-from reader.app import paths
-from reader.store.jsonl import append_jsonl, read_jsonl
+from marginalia.app import paths
+from marginalia.store.jsonl import append_jsonl, read_jsonl
 
 
 def _now() -> str:

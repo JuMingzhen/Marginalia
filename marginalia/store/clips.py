@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PySide6.QtGui import QImage
 
-from reader.app import paths
+from marginalia.app import paths
 
 log = logging.getLogger(__name__)
 

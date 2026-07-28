@@ -5,8 +5,8 @@ from __future__ import annotations
 import fitz
 import pytest
 
-from reader.core.doc_id import compute_doc_id
-from reader.core.document import Document
+from marginalia.core.doc_id import compute_doc_id
+from marginalia.core.document import Document
 
 
 @pytest.fixture

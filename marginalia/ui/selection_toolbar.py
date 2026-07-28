@@ -13,8 +13,8 @@ from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QPushButton, QWidget
 
-from reader.store.notes import COLORS
-from reader.ui.widgets import ColorSwatch
+from marginalia.store.notes import COLORS
+from marginalia.ui.widgets import ColorSwatch
 
 GAP_ABOVE_SELECTION = 10
 

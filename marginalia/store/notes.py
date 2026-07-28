@@ -21,9 +21,9 @@ import time
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Literal
 
-from reader.app import paths
-from reader.store import ulid
-from reader.store.jsonl import append_jsonl, read_jsonl
+from marginalia.app import paths
+from marginalia.store import ulid
+from marginalia.store.jsonl import append_jsonl, read_jsonl
 
 log = logging.getLogger(__name__)
 

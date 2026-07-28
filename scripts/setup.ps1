@@ -1,9 +1,9 @@
 ﻿<#
 .SYNOPSIS
-    在 Windows 侧创建虚拟环境并安装 Reader 的依赖。
+    在 Windows 侧创建虚拟环境并安装 Marginalia 的依赖。
 
 .DESCRIPTION
-    虚拟环境建在 %USERPROFILE%\.venvs\reader，而不是仓库目录里。
+    虚拟环境建在 %USERPROFILE%\.venvs\marginalia，而不是仓库目录里。
     仓库位于 WSL 文件系统（UNC 路径），把上百 MB 的包装到 UNC 上既慢又容易
     出现 Scripts\*.exe 启动器失效的问题。
 
@@ -22,7 +22,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$VenvDir = Join-Path $env:USERPROFILE ".venvs\reader"
+$VenvDir = Join-Path $env:USERPROFILE ".venvs\marginalia"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 
 Write-Host "仓库    : $RepoRoot"

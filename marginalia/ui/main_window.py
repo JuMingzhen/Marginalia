@@ -25,21 +25,21 @@ from PySide6.QtWidgets import (
     QSplitter,
 )
 
-from reader.app.config import Config
-from reader.core import theme as theme_mod
-from reader.core.document import Document
-from reader.core.render import PageRenderer
-from reader.core.textmap import Selection
-from reader.services.ocr import OcrService
-from reader.store import clips as clip_store
-from reader.store import progress as progress_store
-from reader.store.library import Library
-from reader.store.notes import DEFAULT_COLOR, Anchor, Note, NoteStore
-from reader.ui.note_editor import NoteEditor
-from reader.ui.notes_panel import NotesPanel
-from reader.ui.outline_panel import OutlinePanel
-from reader.ui.page_view import PageView, ZoomMode
-from reader.ui.selection_toolbar import SelectionToolbar
+from marginalia.app.config import Config
+from marginalia.core import theme as theme_mod
+from marginalia.core.document import Document
+from marginalia.core.render import PageRenderer
+from marginalia.core.textmap import Selection
+from marginalia.services.ocr import OcrService
+from marginalia.store import clips as clip_store
+from marginalia.store import progress as progress_store
+from marginalia.store.library import Library
+from marginalia.store.notes import DEFAULT_COLOR, Anchor, Note, NoteStore
+from marginalia.ui.note_editor import NoteEditor
+from marginalia.ui.notes_panel import NotesPanel
+from marginalia.ui.outline_panel import OutlinePanel
+from marginalia.ui.page_view import PageView, ZoomMode
+from marginalia.ui.selection_toolbar import SelectionToolbar
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ class MainWindow(QMainWindow):
         self._pending_clips: dict[str, str] = {}
         self._pending_ocr: dict[str, str] = {}
 
-        self.setWindowTitle("Reader")
+        self.setWindowTitle("Marginalia")
         self.setAcceptDrops(True)
         self.resize(1200, 900)
 
@@ -347,7 +347,7 @@ class MainWindow(QMainWindow):
         )
         self._config.set("last_open_dir", str(path.parent))
 
-        self.setWindowTitle(f"{doc.title} — Reader")
+        self.setWindowTitle(f"{doc.title} — Marginalia")
         self._page_total.setText(f"/ {doc.page_count}")
         if not has_text:
             self.statusBar().showMessage(

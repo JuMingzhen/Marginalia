@@ -14,8 +14,8 @@ from pathlib import Path
 
 import fitz
 
-from reader.core.doc_id import compute_doc_id
-from reader.core.textmap import PageTextMap
+from marginalia.core.doc_id import compute_doc_id
+from marginalia.core.textmap import PageTextMap
 
 log = logging.getLogger(__name__)
 

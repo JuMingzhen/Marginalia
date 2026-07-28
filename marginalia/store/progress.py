@@ -9,8 +9,8 @@ from __future__ import annotations
 import time
 from dataclasses import asdict, dataclass
 
-from reader.app import paths
-from reader.store.jsonl import read_json, write_json
+from marginalia.app import paths
+from marginalia.store.jsonl import read_json, write_json
 
 
 @dataclass

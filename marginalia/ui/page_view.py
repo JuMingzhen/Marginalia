@@ -34,12 +34,12 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QAbstractScrollArea, QWidget
 
-from reader.core import theme as theme_mod
-from reader.core.document import Document
-from reader.core.render import PageRenderer
-from reader.core.textmap import Rect, Selection
-from reader.store.notes import Note, NoteStore
-from reader.ui import colors
+from marginalia.core import theme as theme_mod
+from marginalia.core.document import Document
+from marginalia.core.render import PageRenderer
+from marginalia.core.textmap import Rect, Selection
+from marginalia.store.notes import Note, NoteStore
+from marginalia.ui import colors
 
 #: 100% 缩放 = 物理尺寸还原（Qt 逻辑像素约合 96dpi，PDF 单位是 72dpi）
 BASE_SCALE = 96.0 / 72.0

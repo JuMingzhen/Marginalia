@@ -6,8 +6,8 @@ from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QToolButton, QWidget
 
-from reader.store.notes import COLORS
-from reader.ui import colors as color_mod
+from marginalia.store.notes import COLORS
+from marginalia.ui import colors as color_mod
 
 SWATCH_SIZE = 22
 

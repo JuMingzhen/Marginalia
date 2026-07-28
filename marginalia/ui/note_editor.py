@@ -22,9 +22,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from reader.store.notes import Note
-from reader.ui.clip_viewer import ClickableLabel, ClipViewer
-from reader.ui.widgets import ColorPicker
+from marginalia.store.notes import Note
+from marginalia.ui.clip_viewer import ClickableLabel, ClipViewer
+from marginalia.ui.widgets import ColorPicker
 
 AUTOSAVE_DELAY_MS = 600
 QUOTE_MAX_HEIGHT = 130

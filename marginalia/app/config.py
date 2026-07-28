@@ -8,8 +8,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from reader.app import paths
-from reader.store.jsonl import read_json, write_json
+from marginalia.app import paths
+from marginalia.store.jsonl import read_json, write_json
 
 log = logging.getLogger(__name__)
 
