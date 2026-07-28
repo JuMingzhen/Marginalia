@@ -58,16 +58,51 @@ docs/         设计文档
 - `core/textmap.py` — 词框索引与拖选，全项目唯一有算法含量的地方。
 - `ui/page_view.py` — 虚拟化画布，只渲染视口附近的页。
 
-## 自检
+## 打包
 
-打包后用自检模式确认冻结的程序真的能跑：
+**必须在 Windows 上做**，PyInstaller 不能交叉编译。
+
+```powershell
+py -3.13 -m venv $env:USERPROFILE\.venvs\marginalia-build
+& "$env:USERPROFILE\.venvs\marginalia-build\Scripts\pip" install PySide6 PyMuPDF numpy pyinstaller pillow
+# 想让安装包带上 OCR 组件，再装：
+& "$env:USERPROFILE\.venvs\marginalia-build\Scripts\pip" install rapidocr-onnxruntime
+
+& "$env:USERPROFILE\.venvs\marginalia-build\Scripts\python" packaging\build.py --all
+```
+
+产物在 `packaging/output/`：
+
+| 文件 | 说明 |
+|---|---|
+| `Marginalia/` | PyInstaller 的 onedir 输出 |
+| `Marginalia-x.y.z-Setup.exe` | 安装程序（需要 [Inno Setup 6](https://jrsoftware.org/isdl.php)） |
+| `Marginalia-x.y.z-portable.zip` | 便携版，自带 `data\` |
+
+几个容易踩的点：
+
+- **onedir 不是 onefile。** onefile 每次启动都要解压两百多 MB，冷启动好几秒。
+- **`marginalia.spec` 里有一长串 Qt 模块排除清单**，去掉之后体积大约减半。
+  加新功能时如果用到了被排除的模块，源码运行一切正常、打完包才炸——所以务必跑自检。
+- **OCR 是安装程序里的可选组件。** `build.py` 会把 OCR 相关文件挪到
+  `output/ocr-component/`，安装程序据此分成两个组件。便携版则是全都带上。
+- 安装程序的向导界面默认是英文（Inno 官方发行版不带简体中文）。把第三方的
+  `ChineseSimplified.isl` 放进 Inno Setup 的 `Languages` 目录即可启用中文。
+
+### 自检
+
+打包后必须确认冻结的程序真的能跑：
 
 ```
 Marginalia.exe --selftest
 ```
 
-它会开一本内置的测试 PDF、渲染一页、建一条笔记、读回来、退出，
-任何一步失败都返回非零。CI 靠它把关。
+它会依次验证 Qt / PyMuPDF / numpy 能否加载、资源文件在不在、后台线程能否渲染页面、
+高清裁剪、词框抽取、笔记落盘与回读。这些在源码运行时**全都正常**，只有打包后才会
+暴露——而且失败时往往是一个没有任何输出的静默退出。
+
+报告同时写到 stdout 和 `%TEMP%\marginalia-selftest.txt`（窗口程序没有控制台）。
+`build.py` 会自动跑一遍，不过也可以手动跑。
 
 ## 测试约定
 

@@ -18,7 +18,13 @@ from marginalia.services.ocr.base import OcrResult
 
 log = logging.getLogger(__name__)
 
-INSTALL_HINT = "未安装本地 OCR。在 Windows PowerShell 里跑 scripts\\setup.ps1 -Ocr 安装。"
+def _install_hint() -> str:
+    """安装指引取决于用户是怎么拿到程序的。"""
+    from marginalia.app import runtime
+
+    if runtime.is_frozen():
+        return "未安装 OCR 组件。重新运行 Marginalia 安装程序，勾选「OCR（扫描版支持）」即可。"
+    return '未安装本地 OCR。运行 pip install -e ".[ocr]" 安装。'
 
 
 class RapidOcrBackend:
@@ -37,7 +43,7 @@ class RapidOcrBackend:
         return True
 
     def unavailable_reason(self) -> str:
-        return self._load_error or INSTALL_HINT
+        return self._load_error or _install_hint()
 
     def _ensure_engine(self):
         if self._engine is not None:
