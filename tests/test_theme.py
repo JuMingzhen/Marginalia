@@ -11,7 +11,7 @@ import colorsys
 import numpy as np
 import pytest
 
-from reader.core import theme
+from marginalia.core import theme
 
 
 def _apply(rgb: tuple[int, int, int], key: str) -> tuple[int, int, int]:

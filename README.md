@@ -1,76 +1,83 @@
-# Reader
+<div align="center">
 
-本地 PDF 阅读与笔记桌面应用。纯离线，笔记以 JSONL 存在本地文件里，原 PDF 永不修改。
+# Marginalia
 
-设计文档见 [DESIGN.md](DESIGN.md)。
+**本地 PDF 阅读与笔记工具**
 
-## 运行环境
+读得舒服，记得随手，事后找得回来。纯本地，不联网，原文件永不修改。
 
-代码在 WSL 里编辑，**程序在 Windows 侧运行**（原生字体渲染 / HiDPI / 文件关联）。
+</div>
 
-### 首次安装
+---
 
-在资源管理器里打开 `\\wsl.localhost\Ubuntu\home\jmz\dev\Reader\scripts\`，**双击 `setup.cmd`**。
+## 这是什么
 
-会在 `%USERPROFILE%\.venvs\reader` 建一个虚拟环境并装好依赖。虚拟环境刻意不放在仓库里——
-仓库在 WSL 文件系统上，把 120MB 的 PySide6 装到 UNC 路径上又慢又容易出问题。
+一个给自己读技术书和文献用的 PDF 阅读器。两件事做到位：
 
-要读扫描版（无文字层的 PDF），在 PowerShell 里带 `-Ocr` 参数装本地 OCR：
+**读得舒服** — 连续滚动、清晰渲染、目录导航、退出后回到原处。三档配色，其中夜间
+模式只翻转亮度而保留色相，插图和图表不会变成负片。
 
-```powershell
-& "\\wsl.localhost\Ubuntu\home\jmz\dev\Reader\scripts\setup.cmd" -Ocr
+**笔记随手记、事后追得回** — 划词就地浮出工具条，点一下颜色即完成高亮；想深写就
+展开批注卡。每条笔记都记得自己钉在哪一页哪一行，侧栏点一下滚回原文并闪烁定位。
+
+**扫描版不是二等公民** — 没有文字层的书划不出词，改走框选：拖出矩形 → 按 300 DPI
+重新渲染那一块 → OCR → 原文和你的想法一起存下来。识别结果可以直接改。
+
+## 安装
+
+> 尚未发布首个版本。发布后此处提供下载链接。
+
+从 [Releases](https://github.com/JuMingzhen/Marginalia/releases) 下载：
+
+- **`Marginalia-x.y.z-Setup.exe`** — 安装向导，可选安装位置、快捷方式、PDF 文件关联
+- **`Marginalia-x.y.z-portable.zip`** — 解压即用，免安装、免管理员权限
+
+安装程序未做代码签名，Windows 会弹出 SmartScreen 提示「Windows 已保护你的电脑」。
+点 **更多信息 → 仍要运行** 即可。（代码签名证书一年约 $200，个人项目不划算。）
+
+## 你的笔记存在哪
+
+**程序装在哪，和笔记存在哪，是两件事。** 首次运行时程序会问你笔记要放哪，
+默认 `文档\Marginalia\`，随时可以在设置里改。
+
+这样分开是有原因的：如果笔记跟程序一起装进 `C:\Program Files\`，那个目录受系统
+保护写不进去；而且卸载程序时会把笔记一并删掉。
+
+想要「所有东西都在一个文件夹」的话，用**便携模式**——在程序目录旁建一个 `data\`
+文件夹，程序就会用它。便携版 zip 自带这个文件夹，解压到 U 盘即可随身携带。
+
+笔记全是纯文本：
+
+```
+文档\Marginalia\
+  library.jsonl              书库索引
+  docs\<每本书>\
+    notes.jsonl              笔记（一行一条事件，可以直接 grep、可以进 git）
+    progress.json            读到哪了
+    clips\                   框选笔记的截图
 ```
 
-没装也能用，只是框选出来的原文得自己录。
+**卸载不会删除数据目录。**
 
-### 启动
-
-双击 `scripts\run.cmd`，或者把 PDF 拖到它上面直接打开那本书。
-
-> **为什么是 `.cmd` 而不是直接跑 `.ps1`**：仓库在 WSL 文件系统上，Windows 通过
-> `\\wsl.localhost\` 访问时算「远程」区域，默认的 RemoteSigned 执行策略会拒绝运行
-> 那里的未签名 PowerShell 脚本。`.cmd` 不受执行策略约束，由它转手调用即可。
-> 同理，两个 `.ps1` 存成带 BOM 的 UTF-8——PowerShell 5.1 否则会按 GBK 读，中文全是乱码。
-
-`run.cmd -Quiet` 用 `pythonw.exe` 启动，不带控制台窗口。
-
-## 用法速记
+## 用法
 
 | 操作 | 快捷键 |
 |---|---|
-| 打开 / 跳页 / 搜索目录 | `Ctrl+O` / `Ctrl+G` / `Ctrl+B` |
+| 打开 / 跳页 / 目录侧栏 | `Ctrl+O` / `Ctrl+G` / `Ctrl+B` |
 | 缩放 | `Ctrl+滚轮`、`Ctrl+±`、`Ctrl+0`、`Ctrl+1` 适配宽度、`Ctrl+2` 适配整页 |
 | 配色（原色 / 纸色 / 夜间） | `Ctrl+T` |
 | 高亮选中文字 / 写批注 | `H` / `N` |
-| 框选模式（扫描版） | `Ctrl+R`，或随时按住 `Alt` 拖 |
+| 框选（扫描版） | `Ctrl+R` 常开，或随时按住 `Alt` 拖 |
 | 笔记侧栏 | `Ctrl+Shift+B` |
 
-划词后就地会浮出小工具条：点颜色直接高亮，点「批注」展开编辑卡。
-扫描版打开时自动进入框选模式——拖出矩形即按 300 DPI 截图并送去 OCR，
-卡片立刻弹出，识别结果晚一两秒填进「原文」框，可以直接改。
+拖一个 PDF 到窗口里即可打开。装了文件关联的话，资源管理器里双击 PDF 也行。
 
-## 数据
-
-用户数据在 `%USERPROFILE%\.reader\`，可用环境变量 `READER_DATA_DIR` 覆盖。
-
-```
-.reader/
-  config.json        配置
-  library.jsonl      书库索引
-  docs/<doc_id>/     每本书的笔记、进度、截图、OCR 缓存
-```
+打开扫描版时会自动进入框选模式——整本都划不出文字，不必每次按 Alt。
 
 ## 开发
 
-WSL 侧建一个开发环境跑测试和检查（GUI 测试用 Qt 的 offscreen 后端，不需要显示服务）：
+见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)，设计与取舍见 [docs/DESIGN.md](docs/DESIGN.md)。
 
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt pytest ruff
+## 许可
 
-.venv/bin/python -m pytest tests/   # 测试
-.venv/bin/ruff check reader/ tests/ # 检查
-.venv/bin/ruff format reader/       # 格式化
-```
-
-分支约定：功能在 `feat/*` 分支上做，完成后合并回 `main`。
+[MIT](LICENSE)

@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from reader.app.config import Config
-from reader.store.notes import NoteStore
-from reader.ui.main_window import MainWindow
+from marginalia.app.config import Config
+from marginalia.store.notes import NoteStore
+from marginalia.ui.main_window import MainWindow
 
 
 @pytest.fixture(autouse=True)
 def data_dir(tmp_path, monkeypatch):
-    monkeypatch.setenv("READER_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("MARGINALIA_DATA_DIR", str(tmp_path / "data"))
 
 
 @pytest.fixture
@@ -180,7 +180,7 @@ def test_color_change_from_editor_persists(window):
 
 
 def _events(window):
-    from reader.app import paths
-    from reader.store.jsonl import read_jsonl
+    from marginalia.app import paths
+    from marginalia.store.jsonl import read_jsonl
 
     return read_jsonl(paths.doc_dir(window._doc.doc_id) / "notes.jsonl")

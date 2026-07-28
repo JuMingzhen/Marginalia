@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import pytest
 
-from reader.app import paths
-from reader.store.jsonl import read_jsonl
-from reader.store.notes import AiNote, Anchor, NoteStore
+from marginalia.app import paths
+from marginalia.store.jsonl import read_jsonl
+from marginalia.store.notes import AiNote, Anchor, NoteStore
 
 DOC = "d_test123456"
 
 
 @pytest.fixture(autouse=True)
 def data_dir(tmp_path, monkeypatch):
-    monkeypatch.setenv("READER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("MARGINALIA_DATA_DIR", str(tmp_path))
     return tmp_path
 
 

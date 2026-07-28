@@ -7,16 +7,16 @@ from pathlib import Path
 
 import pytest
 
-from reader.app import paths
-from reader.store import library as library_mod
-from reader.store import progress as progress_store
-from reader.store.jsonl import append_jsonl, read_json, read_jsonl, write_json
+from marginalia.app import paths
+from marginalia.store import library as library_mod
+from marginalia.store import progress as progress_store
+from marginalia.store.jsonl import append_jsonl, read_json, read_jsonl, write_json
 
 
 @pytest.fixture(autouse=True)
 def data_dir(tmp_path, monkeypatch):
     """把数据根目录指到临时目录，测试之间互不干扰。"""
-    monkeypatch.setenv("READER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("MARGINALIA_DATA_DIR", str(tmp_path))
     return tmp_path
 
 
@@ -120,7 +120,7 @@ def test_progress_corrupt_file_defaults_to_start(data_dir):
 
 
 def test_config_persists(monkeypatch):
-    from reader.app.config import Config
+    from marginalia.app.config import Config
 
     config = Config()
     config.set("theme", "night")

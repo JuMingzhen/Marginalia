@@ -10,9 +10,9 @@ import itertools
 
 import pytest
 
-from reader.core.document import Document
-from reader.core.render import PageRenderer
-from reader.ui.page_view import BASE_SCALE, PageView, ZoomMode
+from marginalia.core.document import Document
+from marginalia.core.render import PageRenderer
+from marginalia.ui.page_view import BASE_SCALE, PageView, ZoomMode
 
 
 @pytest.fixture

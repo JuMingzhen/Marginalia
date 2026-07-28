@@ -8,18 +8,18 @@ import pytest
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QImage, QMouseEvent
 
-from reader.core.document import Document
-from reader.core.render import PageRenderer
-from reader.services.ocr.base import OcrResult, qimage_to_array
-from reader.services.ocr.service import OcrService
-from reader.store import clips as clip_store
-from reader.store.notes import Anchor, NoteStore
-from reader.ui.page_view import PageView
+from marginalia.core.document import Document
+from marginalia.core.render import PageRenderer
+from marginalia.services.ocr.base import OcrResult, qimage_to_array
+from marginalia.services.ocr.service import OcrService
+from marginalia.store import clips as clip_store
+from marginalia.store.notes import Anchor, NoteStore
+from marginalia.ui.page_view import PageView
 
 
 @pytest.fixture(autouse=True)
 def data_dir(tmp_path, monkeypatch):
-    monkeypatch.setenv("READER_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("MARGINALIA_DATA_DIR", str(tmp_path / "data"))
 
 
 @pytest.fixture
@@ -213,7 +213,7 @@ def test_clip_stored_as_file_not_inline():
     store = NoteStore("d_abc")
     note = store.create(anchor=Anchor(kind="region", page=0, rects=[(0, 0, 20, 20)]), clip=relative)
 
-    from reader.app import paths
+    from marginalia.app import paths
 
     raw = (paths.doc_dir("d_abc") / "notes.jsonl").read_text(encoding="utf-8")
     assert relative in raw

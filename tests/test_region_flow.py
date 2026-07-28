@@ -6,17 +6,17 @@ import fitz
 import numpy as np
 import pytest
 
-from reader.app.config import Config
-from reader.services.ocr.base import OcrResult
-from reader.services.ocr.service import OcrService
-from reader.store import clips as clip_store
-from reader.store.notes import NoteStore
-from reader.ui.main_window import MainWindow
+from marginalia.app.config import Config
+from marginalia.services.ocr.base import OcrResult
+from marginalia.services.ocr.service import OcrService
+from marginalia.store import clips as clip_store
+from marginalia.store.notes import NoteStore
+from marginalia.ui.main_window import MainWindow
 
 
 @pytest.fixture(autouse=True)
 def data_dir(tmp_path, monkeypatch):
-    monkeypatch.setenv("READER_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("MARGINALIA_DATA_DIR", str(tmp_path / "data"))
 
 
 class _StubBackend:
@@ -262,7 +262,7 @@ def test_clip_preview_does_not_stretch_the_panel(window, pump):
 
 def test_clip_viewer_opens_at_full_resolution(window, pump):
     """校对 OCR 要逐字比对原图，缩略图不够用。"""
-    from reader.ui.clip_viewer import ClipViewer
+    from marginalia.ui.clip_viewer import ClipViewer
 
     window._on_region_selected(1, REGION)
     pump(3.0)

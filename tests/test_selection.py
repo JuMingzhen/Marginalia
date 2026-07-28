@@ -6,15 +6,15 @@ import pytest
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QMouseEvent
 
-from reader.core.document import Document
-from reader.core.render import PageRenderer
-from reader.store.notes import Anchor, NoteStore
-from reader.ui.page_view import PageView
+from marginalia.core.document import Document
+from marginalia.core.render import PageRenderer
+from marginalia.store.notes import Anchor, NoteStore
+from marginalia.ui.page_view import PageView
 
 
 @pytest.fixture(autouse=True)
 def data_dir(tmp_path, monkeypatch):
-    monkeypatch.setenv("READER_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("MARGINALIA_DATA_DIR", str(tmp_path / "data"))
 
 
 @pytest.fixture

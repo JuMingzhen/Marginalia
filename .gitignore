@@ -3,13 +3,16 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
-build/
-dist/
-*.spec
 .ruff_cache/
 .pytest_cache/
 .mypy_cache/
 
-# 本地运行产生的用户数据（正常在 %USERPROFILE%\.reader，此项仅防误放）
-.reader/
+# 打包产物
+build/
+dist/
+packaging/output/
+*.manifest
+
+# 便携模式的数据目录（放在程序旁边时）
+data/
 *.log
