@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     启动 Reader。
 
@@ -27,7 +27,7 @@ $Exe = if ($Quiet) { "Scripts\pythonw.exe" } else { "Scripts\python.exe" }
 $Python = Join-Path $VenvDir $Exe
 
 if (-not (Test-Path $Python)) {
-    throw "找不到虚拟环境，请先运行 $(Join-Path $PSScriptRoot 'setup.ps1')"
+    throw "找不到虚拟环境。请先双击运行 $(Join-Path $PSScriptRoot 'setup.cmd')"
 }
 
 $env:PYTHONPATH = $RepoRoot
