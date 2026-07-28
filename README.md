@@ -40,9 +40,15 @@
 
 ## 开发
 
+WSL 侧建一个开发环境跑测试和检查（GUI 测试用 Qt 的 offscreen 后端，不需要显示服务）：
+
 ```bash
-ruff check reader/     # 代码检查
-ruff format reader/    # 格式化
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt pytest ruff
+
+.venv/bin/python -m pytest tests/   # 测试
+.venv/bin/ruff check reader/ tests/ # 检查
+.venv/bin/ruff format reader/       # 格式化
 ```
 
 分支约定：功能在 `feat/*` 分支上做，完成后合并回 `main`。
