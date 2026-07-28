@@ -61,6 +61,7 @@ class _RenderWorker(QObject):
     """住在渲染线程里，独占自己的 fitz 句柄。"""
 
     rendered = Signal(str, QImage)  # key, image（空图表示该请求已作废）
+    clip_rendered = Signal(str, QImage)  # request_id, image
 
     def __init__(self, path: Path, generation: _Generation) -> None:
         super().__init__()
@@ -121,6 +122,50 @@ class _RenderWorker(QObject):
         ).copy()
         return image
 
+    @Slot(str, int, float, float, float, float, int)
+    def render_clip(
+        self,
+        request_id: str,
+        page: int,
+        x0: float,
+        y0: float,
+        x1: float,
+        y1: float,
+        dpi: int,
+    ) -> None:
+        """按指定 DPI 重新渲染页面上的一块矩形。
+
+        屏幕上那张图只有 ~100 DPI，直接截下来拿去 OCR 识别率很差。这里回到原始
+        PDF 按 300 DPI 重画那一小块，识别率是两个量级的差别。也不套用配色主题——
+        截图要的是文档原貌。
+        """
+        if self._doc is None:
+            self.clip_rendered.emit(request_id, QImage())
+            return
+        try:
+            scale = dpi / 72.0
+            pdf_page = self._doc[page]
+            clip = fitz.Rect(x0, y0, x1, y1) & pdf_page.rect
+            if clip.is_empty:
+                self.clip_rendered.emit(request_id, QImage())
+                return
+
+            pix = pdf_page.get_pixmap(
+                matrix=fitz.Matrix(scale, scale),
+                clip=clip,
+                alpha=False,
+                colorspace=fitz.csRGB,
+            )
+            flat = np.frombuffer(pix.samples, dtype=np.uint8)
+            rgb = flat.reshape(pix.height, pix.stride)[:, : pix.width * 3]
+            image = QImage(
+                rgb.tobytes(), pix.width, pix.height, pix.width * 3, QImage.Format.Format_RGB888
+            ).copy()
+        except Exception:
+            log.exception("裁剪失败 page=%d rect=(%.1f,%.1f,%.1f,%.1f)", page, x0, y0, x1, y1)
+            image = QImage()
+        self.clip_rendered.emit(request_id, image)
+
 
 class _ImageCache:
     """按字节预算逐出的 LRU。"""
@@ -155,14 +200,18 @@ class PageRenderer(QObject):
 
     #: 有新页面渲染好了，视图应当重绘
     page_ready = Signal(int)
+    #: 高清裁剪完成：(request_id, image)。图为空表示失败。
+    clip_ready = Signal(str, QImage)
 
     _request = Signal(str, int, float, str, int)
+    _request_clip = Signal(str, int, float, float, float, float, int)
 
     def __init__(self, path: Path, cache_mb: int = 256, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._cache = _ImageCache(cache_mb * 1024 * 1024)
         self._inflight: set[str] = set()
         self._generation = _Generation()
+        self._clip_seq = 0
 
         self._thread = QThread()
         self._thread.setObjectName("render")
@@ -171,7 +220,9 @@ class PageRenderer(QObject):
 
         self._thread.started.connect(self._worker.open)
         self._request.connect(self._worker.render)
+        self._request_clip.connect(self._worker.render_clip)
         self._worker.rendered.connect(self._on_rendered)
+        self._worker.clip_rendered.connect(self.clip_ready)
         self._thread.start()
 
     # ---------- 对视图的接口 ----------
@@ -190,6 +241,15 @@ class PageRenderer(QObject):
         key = cache_key(page, scale, theme)
         if self._cache.get(key) is None:
             self._submit(key, page, scale, theme)
+
+    def request_clip(
+        self, page: int, rect: tuple[float, float, float, float], dpi: int = 300
+    ) -> str:
+        """要一张高清裁剪图。结果通过 clip_ready 异步返回，返回值是配对用的 id。"""
+        self._clip_seq += 1
+        request_id = f"clip{self._clip_seq}"
+        self._request_clip.emit(request_id, page, *rect, dpi)
+        return request_id
 
     def invalidate(self) -> None:
         """视口发生变化：作废所有在途请求。缓存不受影响（已渲染的图永远有效）。"""
