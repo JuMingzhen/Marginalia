@@ -113,9 +113,7 @@ def run_selftest(app_dir: Path) -> None:
     exe = app_dir / f"{APP_NAME}.exe"
     if not exe.exists():  # 非 Windows 上试跑时的兜底
         exe = app_dir / APP_NAME
-    result = subprocess.run(
-        [str(exe), "--selftest"], capture_output=True, text=True, timeout=300
-    )
+    result = subprocess.run([str(exe), "--selftest"], capture_output=True, text=True, timeout=300)
     print(result.stdout or result.stderr)
     if result.returncode != 0:
         raise SystemExit("自检未通过，产物不可用")
@@ -146,8 +144,19 @@ def build_portable(app_dir: Path, version: str) -> Path:
     return target
 
 
-#: 属于 OCR 组件的文件（相对 _internal 的顶层名字前缀）
-OCR_PREFIXES = ("rapidocr_onnxruntime", "onnxruntime")
+#: 属于 OCR 组件的文件（相对 _internal 的顶层名字前缀）。
+#:
+#: 不只是 rapidocr 本身——它拖来的 opencv、shapely、pyclipper 加起来比它自己还大，
+#: 而主程序一个都不用。漏掉它们的后果不是崩溃，是精简安装白白背上一百多 MB。
+#: 拆完会重跑一次自检来确认核心组件仍然完整（见 verify_core_without_ocr）。
+OCR_PREFIXES = (
+    "rapidocr_onnxruntime",
+    "onnxruntime",
+    "cv2",
+    "opencv",
+    "shapely",
+    "pyclipper",
+)
 
 
 def split_ocr_component(app_dir: Path) -> Path | None:
@@ -182,6 +191,17 @@ def split_ocr_component(app_dir: Path) -> Path | None:
     return staging
 
 
+def verify_core_without_ocr(app_dir: Path) -> None:
+    """拆完 OCR 之后，核心组件自己还能跑吗。
+
+    前面那次自检跑的是**完整**目录，证明不了「精简安装」可用——而精简安装恰恰是
+    最容易被拆坏的那一份：多搬走一个别人也在用的库，用户装完就是个打不开的程序。
+    所以拆完再验一遍，这次 OCR 应当报告为不可用，其余全部通过。
+    """
+    print("==> 自检核心组件（不含 OCR）")
+    run_selftest(app_dir)
+
+
 def find_iscc() -> Path | None:
     for candidate in ISCC_CANDIDATES:
         if candidate.exists():
@@ -198,9 +218,7 @@ def build_installer(version: str) -> Path | None:
         print("    从 https://jrsoftware.org/isdl.php 安装后重试")
         return None
 
-    (BUILD / "version.iss").write_text(
-        f'#define AppVersion "{version}"\n', encoding="utf-8"
-    )
+    (BUILD / "version.iss").write_text(f'#define AppVersion "{version}"\n', encoding="utf-8")
     subprocess.run([str(iscc), str(PACKAGING / "marginalia.iss")], check=True, cwd=ROOT)
 
     target = OUTPUT / f"{APP_NAME}-{version}-Setup.exe"
@@ -235,7 +253,8 @@ def main() -> int:
     if args.portable or args.all:
         build_portable(app_dir, version)
     if args.installer or args.all:
-        split_ocr_component(app_dir)
+        if split_ocr_component(app_dir) is not None and not args.skip_selftest:
+            verify_core_without_ocr(app_dir)
         build_installer(version)
 
     print(f"\n完成。产物在 {OUTPUT}")

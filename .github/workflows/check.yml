@@ -26,8 +26,8 @@ jobs:
 
       - name: 静态检查
         run: |
-          ruff check marginalia tests
-          ruff format --check marginalia tests
+          ruff check marginalia tests packaging
+          ruff format --check marginalia tests packaging
 
       - name: 测试
         env:
